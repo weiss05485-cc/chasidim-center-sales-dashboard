@@ -1,19 +1,13 @@
-import streamlit as st
-import requests
-from bs4 import BeautifulSoup
-import pandas as pd
-
-st.set_page_config(page_title="דאשבורד מכירות RNET", layout="wide")
-
-st.title("📊 מערכת מעקב מכירות RNET")
-
 def fetch_sales(username, password):
+    # שורה זו משתיקה את האזהרה המציקה שתופיע בגלל ביטול ה-SSL
+    requests.packages.urllib3.disable_warnings()
+    
     session = requests.Session()
     login_url = "https://app.rnetpos.com/Account/Login"
     
     try:
-        # 1. קבלת דף הכניסה וה-Token
-        r = session.get(login_url)
+        # 1. קבלת דף הכניסה וה-Token (הוספנו verify=False)
+        r = session.get(login_url, verify=False)
         soup = BeautifulSoup(r.text, 'html.parser')
         token_element = soup.find('input', {'name': '__RequestVerificationToken'})
         
@@ -22,7 +16,7 @@ def fetch_sales(username, password):
             
         token = token_element['value']
         
-        # 2. התחברות
+        # 2. התחברות (הוספנו verify=False)
         payload = {
             "UserName": username,
             "Password": password,
@@ -30,33 +24,14 @@ def fetch_sales(username, password):
             "RememberMe": "false"
         }
         
-        login_response = session.post(login_url, data=payload)
+        login_response = session.post(login_url, data=payload, verify=False)
         
         if "Login" in login_response.url:
             return None, "שם משתמש או סיסמה שגויים."
 
-        # 3. משיכת דף המכירות
-        sales_r = session.get("https://app.rnetpos.com/sales")
+        # 3. משיכת דף המכירות (הוספנו verify=False)
+        sales_r = session.get("https://app.rnetpos.com/sales", verify=False)
         return sales_r.text, "success"
         
     except Exception as e:
         return None, f"שגיאה טכנית: {str(e)}"
-
-# ממשק משתמש
-col1, col2 = st.columns(2)
-with col1:
-    user = st.text_input("שם משתמש RNET", value="Hasnew")
-with col2:
-    pwd = st.text_input("סיסמה RNET", value="hasnew123", type="password")
-
-if st.button("משוך נתונים מהקופה"):
-    with st.spinner("מתחבר ל-RNET..."):
-        data, status = fetch_sales(user, pwd)
-        
-        if status == "success":
-            st.success("התחברות הצליחה!")
-            st.write("---")
-            st.subheader("נתונים גולמיים שהתקבלו:")
-            st.code(data[:1000], language='html')
-        else:
-            st.error(status)
