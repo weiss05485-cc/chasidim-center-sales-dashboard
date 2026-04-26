@@ -1,39 +1,41 @@
 import streamlit as st
-import asyncio
+import os
+
+# פקודה להתקנת הדפדפן בתוך השרת של Streamlit אם הוא חסר
+if not os.path.exists("/home/adminuser/.cache/ms-playwright"):
+    os.system("playwright install chromium")
+
 from playwright.sync_api import sync_playwright
 from playwright_stealth import stealth_sync
 
-st.title("📊 RNET - חיבור באמצעות דפדפן וירטואלי")
+st.title("📊 RNET - חיבור דפדפן וירטואלי")
 
 def get_data_with_browser(user, pwd):
     with sync_playwright() as p:
-        # פתיחת דפדפן כרום "חרישי"
+        # הפעלת הדפדפן
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         )
         page = context.new_page()
-        
-        # הגנה מפני זיהוי בוטים
         stealth_sync(page)
         
         try:
             st.write("🌐 פותח את אתר RNET...")
-            page.goto("https://app.rnetpos.com/Account/Login", wait_until="networkidle")
+            page.goto("https://app.rnetpos.com/Account/Login", wait_until="networkidle", timeout=60000)
             
             st.write("⌨️ מזין פרטי התחברות...")
             page.fill('input[name="UserName"]', user)
             page.fill('input[name="Password"]', pwd)
             
-            # לחיצה על כפתור התחברות
+            st.write("🖱️ לוחץ על התחברות...")
             page.click('button[type="submit"]')
             
-            # מחכה שהדף יטען אחרי ההתחברות
-            page.wait_for_url("**/sales**", timeout=10000)
+            # מחכה שהכתובת תשתנה לעמוד המכירות
+            st.write("⏳ מחכה לטעינת נתוני המכירות...")
+            page.wait_for_timeout(5000) # מחכה 5 שניות לביטחון
             
-            st.write("✅ התחברנו! שואב נתונים...")
             content = page.content()
-            
             browser.close()
             return content, "success"
             
@@ -41,13 +43,14 @@ def get_data_with_browser(user, pwd):
             browser.close()
             return None, f"שגיאה: {str(e)}"
 
+# כפתור הפעלה
 if st.button("הפעל דפדפן ומשוך נתונים"):
-    with st.spinner("הדפדפן הוירטואלי מתחיל לעבוד... זה עשוי לקחת כ-30 שניות"):
+    with st.spinner("הדפדפן עובד ברקע... זה עשוי לקחת דקה"):
         data, status = get_data_with_browser("Hasnew", "hasnew123")
         
         if status == "success":
-            st.success("הצלחנו לעקוף את החסימה!")
-            st.code(data[:1000])
+            st.success("הצלחנו!")
+            # אם יש טבלה, ננסה להציג אותה
+            st.text_area("תוצאה גולמית (HTML):", data[:2000], height=300)
         else:
             st.error(status)
-            st.info("אם מופיעה שגיאת Timeout, ייתכן שהאתר דורש אימות נוסף או שהשדות שונים.")
