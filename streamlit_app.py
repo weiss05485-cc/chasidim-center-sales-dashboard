@@ -1,33 +1,46 @@
 import streamlit as st
 import requests
 from bs4 import BeautifulSoup
-import pandas as pd
 
-# הגדרות דף
 st.set_page_config(page_title="בדיקת חיבור RNET", layout="wide")
-
 st.title("🚀 בדיקת חיבור למערכת RNET")
-st.info("אם אתה רואה את ההודעה הזו, האתר עובד תקין. עכשיו נסה להתחבר.")
 
 def fetch_sales(username, password):
-    # ביטול אזהרות SSL
     requests.packages.urllib3.disable_warnings()
     session = requests.Session()
+    
+    # הוספת "זהות" של דפדפן רגיל כדי שלא יחסמו אותנו
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7',
+    })
+
     login_url = "https://app.rnetpos.com/Account/Login"
     
     try:
-        # 1. ניסיון טעינת דף כניסה
-        st.write("מנסה לגשת לדף הכניסה...")
-        r = session.get(login_url, verify=False, timeout=10)
+        st.write("מנסה לגשת לדף הכניסה עם זהות של דפדפן...")
+        r = session.get(login_url, verify=False, timeout=15)
+        
+        # בדיקה אם קיבלנו תוכן בכלל
+        if r.status_code != 200:
+            return None, f"השרת של RNET החזיר שגיאה: {r.status_code}"
+
         soup = BeautifulSoup(r.text, 'html.parser')
         
+        # חיפוש הטוקן - ננסה למצוא אותו בצורה גמישה יותר
         token_element = soup.find('input', {'name': '__RequestVerificationToken'})
+        
         if not token_element:
-            return None, "שגיאה: לא נמצא טוקן אבטחה בדף (RNET שינו משהו?)"
+            # אם לא מצאנו, נדפיס מה כן מצאנו כדי להבין מה קורה
+            st.write("לא נמצא טוקן. בודק אם יש הודעת חסימה...")
+            if "Cloudflare" in r.text or "Captcha" in r.text:
+                return None, "המערכת חסומה על ידי הגנת בוטים (Cloudflare). נצטרך שיטה אחרת."
+            return None, "לא נמצא טוקן אבטחה בדף."
             
         token = token_element['value']
-        
-        # 2. שליחת פרטי התחבורה
+        st.write("טוקן נמצא! מנסה להתחבר...")
+
         payload = {
             "UserName": username,
             "Password": password,
@@ -35,29 +48,22 @@ def fetch_sales(username, password):
             "RememberMe": "false"
         }
         
-        st.write("שולח פרטי התחברות...")
-        login_response = session.post(login_url, data=payload, verify=False, timeout=10)
+        login_response = session.post(login_url, data=payload, verify=False, timeout=15)
         
-        # בדיקה אם נשארנו בדף הלוגין (סימן שנכשל)
-        if "Login" in login_response.url and login_response.status_code == 200:
-             return None, "שם משתמש או סיסמה לא נכונים במערכת RNET."
+        if "Login" in login_response.url:
+             return None, "שם משתמש או סיסמה לא נכונים."
 
-        # 3. משיכת נתונים
-        st.write("מתחבר לדף המכירות...")
-        sales_r = session.get("https://app.rnetpos.com/sales", verify=False, timeout=10)
+        sales_r = session.get("https://app.rnetpos.com/sales", verify=False, timeout=15)
         return sales_r.text, "success"
         
     except Exception as e:
-        return None, f"שגיאה בתקשורת: {str(e)}"
+        return None, f"שגיאה: {str(e)}"
 
-# כפתור הפעלה
 if st.button("התחל משיכת נתונים"):
-    # כאן השתמשתי בפרטים שנתת לי קודם
     html_data, status = fetch_sales("Hasnew", "hasnew123")
     
     if status == "success":
-        st.success("בינגו! הצלחנו להיכנס.")
-        st.subheader("תוכן ראשוני מהאתר:")
-        st.code(html_data[:1000], language='html')
+        st.success("הצלחנו!")
+        st.code(html_data[:1000])
     else:
         st.error(status)
