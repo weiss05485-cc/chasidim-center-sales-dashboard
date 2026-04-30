@@ -1,45 +1,34 @@
 import streamlit as st
-import requests
 import pandas as pd
 
-st.set_page_config(page_title="RNET BI Dashboard", layout="wide")
+st.set_page_config(page_title="RNET Dashboard", layout="wide")
+st.title("📊 דאשבורד מכירות RNET - העלאת קובץ")
 
-st.title("📊 דאשבורד מכירות RNET (חיבור API)")
+# כפתור להעלאת הקובץ שייצאת מהתוכנה
+uploaded_file = st.file_uploader("גרור לכאן את קובץ האקסל שייצאת מ-RNET", type=['xlsx', 'xls'])
 
-# הזנת פרטי גישה (לפי התיעוד ששלחת)
-with st.sidebar:
-    st.header("מפתח גישה")
-    token = st.text_input("הדבק כאן את ה-Security Token שלך:", type="password")
-    st.info("את ה-Token ניתן לקבל ממנהל תיק הלקוח ב-RNET")
+if uploaded_file:
+    try:
+        # קריאת האקסל
+        df = pd.read_excel(uploaded_file)
+        
+        st.success("✅ הקובץ נטען בהצלחה!")
+        
+        # תצוגת נתונים בסיסית (לפי העמודות שראינו בתוכנה)
+        st.subheader("סיכום נתונים מהיר:")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("סה-כ מכירות (ברוטו)", f"₪{df['סה-כ'].sum():,.2f}")
+        with col2:
+            st.metric("כמות עסקאות", len(df))
+        with col3:
+            st.metric("ממוצע לעסקה", f"₪{df['סה-כ'].mean():,.2f}")
 
-if token:
-    # שליפת רשימת חנויות לפי התיעוד ששלחת
-    url = "https://api.rnetpos.com/v1/stores" #
-    
-    # הגדרת אימות (Basic Auth) לפי התיעוד
-    # משתמש: token, סיסמה: ה-token האישי
-    auth = ('token', token) #
-
-    with st.spinner("מושך נתונים מהשרת..."):
-        try:
-            response = requests.get(url, auth=auth, timeout=10) #
-            
-            if response.status_code == 200:
-                data = response.json()
-                df = pd.DataFrame(data)
-                
-                # תצוגה של החנויות (בני ברק, ירושלים וכו')
-                st.success(f"נמצאו {len(df)} חנויות פעילות")
-                
-                # יצירת טבלה יפה
-                cols_to_show = ['StoreName', 'Code', 'Status']
-                st.table(df[cols_to_show])
-                
-            elif response.status_code == 401:
-                st.error("❌ ה-Token לא תקין. וודא שהעתקת אותו נכון.")
-            else:
-                st.error(f"שגיאה מהשרת: {response.status_code}")
-        except Exception as e:
-            st.error(f"שגיאה בחיבור: {e}")
+        # גרף מכירות לפי תאריך
+        st.line_chart(df.set_index('תאריך')['סה-כ'])
+        
+    except Exception as e:
+        st.error(f"שגיאה בניתוח הקובץ: {e}. וודא שזה הקובץ המקורי שייצאת מהתוכנה.")
 else:
-    st.warning("נא להזין Security Token כדי לראות נתונים.")
+    st.info("אנא ייצא את הדוח מהתוכנה (אייקון האקסל) והעלה אותו לכאן.")
