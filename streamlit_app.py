@@ -1,33 +1,45 @@
 import streamlit as st
 import requests
-from bs4 import BeautifulSoup
+import pandas as pd
 
-st.set_page_config(page_title="RNET Dashboard", layout="wide")
-st.title("📊 דאשבורד מכירות RNET")
+st.set_page_config(page_title="RNET BI Dashboard", layout="wide")
 
-# תיבת הדבקה למה שהעתקת מה-Console
-raw_cookie = st.text_input("הדבק כאן את מה שהעתקת מה-Console (Ctrl+V):", type="password")
+st.title("📊 דאשבורד מכירות RNET (חיבור API)")
 
-if raw_cookie:
-    url = "https://app.rnetpos.com/sales"
+# הזנת פרטי גישה (לפי התיעוד ששלחת)
+with st.sidebar:
+    st.header("מפתח גישה")
+    token = st.text_input("הדבק כאן את ה-Security Token שלך:", type="password")
+    st.info("את ה-Token ניתן לקבל ממנהל תיק הלקוח ב-RNET")
+
+if token:
+    # שליפת רשימת חנויות לפי התיעוד ששלחת
+    url = "https://api.rnetpos.com/v1/stores" #
     
-    # הגדרת ה-Headers עם כל הקוקיז שהדבקת
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Cookie': raw_cookie  # כאן אנחנו משתמשים בכל השורה שהעתקת
-    }
+    # הגדרת אימות (Basic Auth) לפי התיעוד
+    # משתמש: token, סיסמה: ה-token האישי
+    auth = ('token', token) #
 
-    with st.spinner("מתחבר ל-RNET..."):
+    with st.spinner("מושך נתונים מהשרת..."):
         try:
-            response = requests.get(url, headers=headers, timeout=15)
+            response = requests.get(url, auth=auth, timeout=10) #
             
-            if response.status_code == 200 and "Login" not in response.url:
-                st.success("✅ הצלחנו! המערכת מחוברת.")
+            if response.status_code == 200:
+                data = response.json()
+                df = pd.DataFrame(data)
                 
-                # תצוגה ראשונית של הקוד כדי שאוכל לעזור לך לעצב
-                st.subheader("נתונים גולמיים מהשרת:")
-                st.code(response.text[:2000])
+                # תצוגה של החנויות (בני ברק, ירושלים וכו')
+                st.success(f"נמצאו {len(df)} חנויות פעילות")
+                
+                # יצירת טבלה יפה
+                cols_to_show = ['StoreName', 'Code', 'Status']
+                st.table(df[cols_to_show])
+                
+            elif response.status_code == 401:
+                st.error("❌ ה-Token לא תקין. וודא שהעתקת אותו נכון.")
             else:
-                st.error("❌ ההתחברות נכשלה. וודא שאתה מחובר לאתר RNET בדפדפן לפני העתקת הקוד.")
+                st.error(f"שגיאה מהשרת: {response.status_code}")
         except Exception as e:
-            st.error(f"שגיאה: {e}")
+            st.error(f"שגיאה בחיבור: {e}")
+else:
+    st.warning("נא להזין Security Token כדי לראות נתונים.")
