@@ -1,73 +1,63 @@
 import streamlit as st
 import pandas as pd
 import requests
-import urllib3
+import json
 
-# ביטול אזהרות אבטחה
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+st.set_page_config(page_title="RNET Cloud Automation", layout="wide")
 
-st.set_page_config(page_title="RNET Auto-Controller", layout="wide")
-st.title("🤖 השתלטות אוטומטית על נתוני RNET")
-
-# פרטי הגישה שלך
+# הגדרות
 USER = "Hasnew"
 PASS = "hasnew123"
-BASE_URL = "https://app.rnetpos.com"
+# כאן תכניס את המפתח שתקבל מ-browserless
+BROWSERLESS_TOKEN = "כאן_שמים_את_המפתח" 
 
-def fetch_raw_sales():
-    session = requests.Session()
+st.title("🤖 השתלטות ענן אוטומטית (RNET)")
+
+def fetch_data_via_cloud_browser():
+    # פקודת "השתלטות" שנשלחת לדפדפן מרוחק
+    # הקוד הזה אומר לדפדפן בענן: כנס, תתחבר, ותביא לי את הטבלה
+    logic = f"""
+    async ({{ page }}) => {{
+        await page.goto('https://app.rnetpos.com/Account/Login');
+        await page.fill('input[name="UserName"]', '{USER}');
+        await page.fill('input[name="Password"]', '{PASS}');
+        await page.click('button[type="submit"]');
+        await page.waitForNavigation();
+        
+        await page.goto('https://app.rnetpos.com/sales');
+        await page.waitForTimeout(5000); // מחכה שהנתונים יטענו
+        
+        // מושך את הנתונים מהטבלה שעל המסך
+        const data = await page.evaluate(() => {{
+            const rows = Array.from(document.querySelectorAll('table tr'));
+            return rows.map(row => {{
+                const columns = row.querySelectorAll('td');
+                return Array.from(columns).map(column => column.innerText);
+            }});
+        }});
+        return data;
+    }}
+    """
     
-    # הגדרות שגורמות לבוט להיראות כמו דפדפן אמיתי
-    session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'application/json, text/javascript, */*; q=0.01',
-        'X-Requested-With': 'XMLHttpRequest'
-    })
-
-    try:
-        # 1. שלב ההתחברות (Login)
-        login_payload = {"UserName": USER, "Password": PASS, "RememberMe": "false"}
-        login_res = session.post(f"{BASE_URL}/Account/Login", data=login_payload, verify=False)
-        
-        if login_res.status_code != 200:
-            st.error("ההתחברות לאתר נכשלה.")
-            return None
-
-        # 2. שלב "ההשתלטות" - בקשת הנתונים הגולמיים
-        # אנחנו מנסים לפנות לנתיב שבו האתר שומר את נתוני המכירות הגולמיים
-        # הערה: הנתיב הזה משתנה מאתר לאתר, זהו ניסיון לפי המבנה של RNET
-        sales_api_url = f"{BASE_URL}/Sales/GetSalesList" 
-        
-        # פרמטרים של תאריכים (לפי מה שראינו בתמונה 03.05.2026)
-        params = {
-            'fromDate': '2026-05-01',
-            'toDate': '2026-05-03',
-            'branchId': '0' # 0 בדרך כלל אומר "כל הסניפים"
-        }
-
-        response = session.get(sales_api_url, params=params, verify=False)
-        
-        if response.status_code == 200:
-            data = response.json()
-            # אם הנתונים הגיעו בפורמט JSON, נהפוך אותם לטבלה
-            if 'data' in data:
-                return pd.DataFrame(data['data'])
-            return pd.DataFrame(data)
-        else:
-            st.error(f"האתר סירב למסור נתונים גולמיים. קוד שגיאה: {response.status_code}")
-            return None
-
-    except Exception as e:
-        st.error(f"שגיאה בתקשורת: {e}")
+    url = f"https://production-sfo.browserless.io/function?token={BROWSERLESS_TOKEN}"
+    response = requests.post(url, json={"code": logic}, headers={"Content-Type": "application/json"})
+    
+    if response.status_code == 200:
+        return response.json()['data']
+    else:
         return None
 
-if st.button("🚀 הפעל השתלטות ומשיכת נתונים"):
-    with st.spinner("מבצע כניסה לאתר ושואב מכירות..."):
-        df = fetch_raw_sales()
-        
-        if df is not None and not df.empty:
-            st.success("הצלחתי! הנה נתוני המכירות הגולמיים:")
-            st.dataframe(df)
-        else:
-            st.warning("הבוט נכנס לאתר אבל לא מצא טבלת מכירות.")
-            st.info("באתרים מאובטחים כמו RNET, לפעמים חייבים להשתמש בדפדפן אמיתי (Playwright) שמותקן על המחשב שלך.")
+if st.button("🚀 הפעל השתלטות מהענן"):
+    if BROWSERLESS_TOKEN == "כאן_שמים_את_המפתח":
+        st.warning("עליך להירשם ל-Browserless ולשים את המפתח בקוד.")
+    else:
+        with st.spinner("דפדפן מרוחק משתלט על RNET..."):
+            raw_data = fetch_data_via_cloud_browser()
+            if raw_data:
+                df = pd.DataFrame(raw_data)
+                st.success("הנתונים נשאבו בהצלחה!")
+                st.dataframe(df)
+            else:
+                st.error("ההשתלטות נכשלה. ייתכן והאתר שינה את מבנה הדף.")
+
+st.info("💡 פתרון זה משתמש בדפדפן חיצוני בענן, כך שאין צורך להתקין כלום על המחשב שלך.")
