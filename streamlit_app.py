@@ -2,42 +2,56 @@ import streamlit as st
 import pandas as pd
 import pyodbc
 
-st.set_page_config(page_title="RNET Live Dashboard", layout="wide")
-st.title("🚀 דאשבורד RNET - נתונים בזמן אמת")
+st.set_page_config(page_title="RNET Dashboard", layout="wide")
 
-# פרטי השרת
-SERVER = '51.17.219.56'
-DATABASE = 'HasidimNEW'
-USERNAME = '780'
-PASSWORD = '21060'
+st.title("📊 מערכת ניהול מכירות RNET")
 
-@st.cache_data(ttl=600)
-def load_live_data():
-    # בלינוקס (Streamlit Cloud) משתמשים בדרייבר FreeTDS או ODBC Driver 17/18
-    # ננסה את הפורמט הכי נפוץ שעובד ב-Cloud
-    conn_str = (
-        f'DRIVER={{ODBC Driver 17 for SQL Server}};'
-        f'SERVER={SERVER};'
-        f'DATABASE={DATABASE};'
-        f'UID={USERNAME};'
-        f'PWD={PASSWORD};'
-        f'Timeout=30;'
-    )
+# תפריט בחירה בציד האתר
+st.sidebar.header("🔌 חיבור לנתונים")
+mode = st.sidebar.radio("בחר מקור נתונים:", ("העלאת קובץ אקסל", "חיבור ישיר לשרת (Live)"))
+
+if mode == "חיבור ישיר לשרת (Live)":
+    st.subheader("🔗 חיבור ישיר לבסיס הנתונים")
     
-    conn = pyodbc.connect(conn_str)
-    # נסה למשוך נתונים מטבלת המכירות (כאן צריך לוודא את שם הטבלה המדויק ב-RNET)
-    query = "SELECT TOP 100 * FROM Sales" 
-    df = pd.read_sql(query, conn)
-    conn.close()
-    return df
+    # כפתור התחברות כדי שלא ינסה כל הזמן ויחסם
+    if st.button("בצע התחברות עכשיו"):
+        try:
+            conn_str = (
+                'DRIVER={ODBC Driver 17 for SQL Server};'
+                'SERVER=51.17.219.56;'
+                'DATABASE=HasidimNEW;'
+                'UID=780;'
+                'PWD=21060;'
+                'ConnectTimeout=10;'
+            )
+            with st.spinner('מנסה להתחבר...'):
+                conn = pyodbc.connect(conn_str)
+                # כאן צריך לדעת את שם הטבלה (למשל Sales או Transactions)
+                df = pd.read_sql("SELECT TOP 100 * FROM TblSales ORDER BY SaleDate DESC", conn)
+                st.success("✅ חיבור הצליח! נתונים נמשכו.")
+                st.dataframe(df)
+                conn.close()
+        except Exception as e:
+            st.error(f"לא הצלחתי להתחבר: {e}")
+            st.info("נראה שהמשתמש '780' לא מורשה להתחבר ישירות ל-SQL. בדוק עם התמיכה של RNET.")
 
-try:
-    with st.spinner('מנסה להתחבר לבסיס הנתונים של RNET...'):
-        df = load_live_data()
+else:
+    st.subheader("📂 העלאת דוח אקסל ידני")
+    uploaded_file = st.file_uploader("גרור כאן את האקסל שייצאת מ-RNET", type=['xlsx', 'xls', 'csv'])
     
-    st.success("✅ מחובר בהצלחה!")
-    st.dataframe(df)
+    if uploaded_file:
+        try:
+            # הקוד החזק שכתבנו קודם שסורק את האקסל
+            for i in range(10):
+                uploaded_file.seek(0)
+                temp_df = pd.read_excel(uploaded_file, skiprows=i)
+                if any(col for col in temp_df.columns if not str(col).startswith('Unnamed')):
+                    df = temp_df
+                    break
+            st.success("✅ הקובץ נקלט!")
+            st.dataframe(df.head(20))
+        except Exception as e:
+            st.error(f"שגיאה בקריאת הקובץ: {e}")
 
-except Exception as e:
-    st.error(f"לא הצלחתי להתחבר ישירות לשרת: {e}")
-    st.info("💡 טיפ: אם מופיעה שגיאת Timeout, ייתכן שהשרת שלכם חוסם חיבורים מחו-ל.")
+st.markdown("---")
+st.caption("פיתוח: דאשבורד מכירות חסידים | סטטוס חיבור: פעיל")
