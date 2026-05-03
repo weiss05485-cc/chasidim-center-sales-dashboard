@@ -1,78 +1,73 @@
 import streamlit as st
 import pandas as pd
 import requests
-from bs4 import BeautifulSoup # ספרייה לקריאת תוכן של דפי אינטרנט
 import urllib3
 
+# ביטול אזהרות אבטחה
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-st.set_page_config(page_title="RNET Dashboard", layout="wide")
-st.title("📊 דאשבורד מכירות RNET (נתוני מסך)")
+st.set_page_config(page_title="RNET Auto-Controller", layout="wide")
+st.title("🤖 השתלטות אוטומטית על נתוני RNET")
 
-# פרטי הגישה
+# פרטי הגישה שלך
 USER = "Hasnew"
 PASS = "hasnew123"
 BASE_URL = "https://app.rnetpos.com"
 
-def scrape_rnet_screen():
+def fetch_raw_sales():
     session = requests.Session()
-    login_url = f"{BASE_URL}/Account/Login"
-    sales_url = f"{BASE_URL}/sales" # הדף שרואים בתמונה
     
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    }
-    
-    login_data = { "UserName": USER, "Password": PASS, "RememberMe": "false" }
-    
-    try:
-        # 1. התחברות
-        session.post(login_url, data=login_data, headers=headers, verify=False, timeout=20)
-        
-        # 2. כניסה לדף המכירות
-        res = session.get(sales_url, headers=headers, verify=False, timeout=20)
-        
-        # 3. ניתוח דף ה-HTML (Scraping)
-        soup = BeautifulSoup(res.text, 'html.parser')
-        
-        # חיפוש כל הנתונים שמופיעים ברשימה בתמונה
-        data_points = {}
-        
-        # אנחנו מחפשים שורות שמכילות טקסט ומספרים עם סימן ₪
-        # הקוד הזה סורק את כל ה"אלמנטים" בדף ומחפש התאמות
-        for item in soup.find_all(['div', 'span', 'li']):
-            text = item.get_text().strip()
-            if "₪" in text:
-                # ניקוי הטקסט כדי להפריד בין השם (למשל 'בני ברק') למספר
-                clean_text = text.replace('₪', '').strip()
-                # ננסה למצוא את התווית שקרובה למספר הזה
-                parent_text = item.parent.get_text()
-                
-                if "בני ברק" in parent_text: data_points["בני ברק"] = clean_text
-                if "ירושלים" in parent_text: data_points["ירושלים"] = clean_text
-                if 'ס"כ מכירות' in parent_text: data_points['ס"כ מכירות'] = clean_text
-                if "עסקה ממוצעת" in parent_text or "ממוצעת" in parent_text: data_points["ממוצע"] = clean_text
+    # הגדרות שגורמות לבוט להיראות כמו דפדפן אמיתי
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/javascript, */*; q=0.01',
+        'X-Requested-With': 'XMLHttpRequest'
+    })
 
-        return data_points
+    try:
+        # 1. שלב ההתחברות (Login)
+        login_payload = {"UserName": USER, "Password": PASS, "RememberMe": "false"}
+        login_res = session.post(f"{BASE_URL}/Account/Login", data=login_payload, verify=False)
+        
+        if login_res.status_code != 200:
+            st.error("ההתחברות לאתר נכשלה.")
+            return None
+
+        # 2. שלב "ההשתלטות" - בקשת הנתונים הגולמיים
+        # אנחנו מנסים לפנות לנתיב שבו האתר שומר את נתוני המכירות הגולמיים
+        # הערה: הנתיב הזה משתנה מאתר לאתר, זהו ניסיון לפי המבנה של RNET
+        sales_api_url = f"{BASE_URL}/Sales/GetSalesList" 
+        
+        # פרמטרים של תאריכים (לפי מה שראינו בתמונה 03.05.2026)
+        params = {
+            'fromDate': '2026-05-01',
+            'toDate': '2026-05-03',
+            'branchId': '0' # 0 בדרך כלל אומר "כל הסניפים"
+        }
+
+        response = session.get(sales_api_url, params=params, verify=False)
+        
+        if response.status_code == 200:
+            data = response.json()
+            # אם הנתונים הגיעו בפורמט JSON, נהפוך אותם לטבלה
+            if 'data' in data:
+                return pd.DataFrame(data['data'])
+            return pd.DataFrame(data)
+        else:
+            st.error(f"האתר סירב למסור נתונים גולמיים. קוד שגיאה: {response.status_code}")
+            return None
+
     except Exception as e:
-        st.error(f"שגיאה בשליפת נתוני מסך: {e}")
+        st.error(f"שגיאה בתקשורת: {e}")
         return None
 
-if st.button("🔄 עדכן נתונים מהמסך"):
-    results = scrape_rnet_screen()
-    
-    if results:
-        st.success("הנתונים נשלפו מהאתר!")
+if st.button("🚀 הפעל השתלטות ומשיכת נתונים"):
+    with st.spinner("מבצע כניסה לאתר ושואב מכירות..."):
+        df = fetch_raw_sales()
         
-        # תצוגה יפה של הנתונים מהתמונה
-        col1, col2, col3 = st.columns(3)
-        
-        col1.metric("סך מכירות", f"₪{results.get('ס\"כ מכירות', '0')}")
-        col2.metric("בני ברק", f"₪{results.get('בני ברק', '0')}")
-        col3.metric("ירושלים", f"₪{results.get('ירושלים', '0')}")
-        
-        # הצגת הטבלה המלאה של מה שמצאנו
-        st.write("### פירוט מלא:")
-        st.json(results)
-    else:
-        st.warning("לא הצלחתי למצוא את הנתונים בדף. וודא שהאתר פתוח ומציג נתונים.")
+        if df is not None and not df.empty:
+            st.success("הצלחתי! הנה נתוני המכירות הגולמיים:")
+            st.dataframe(df)
+        else:
+            st.warning("הבוט נכנס לאתר אבל לא מצא טבלת מכירות.")
+            st.info("באתרים מאובטחים כמו RNET, לפעמים חייבים להשתמש בדפדפן אמיתי (Playwright) שמותקן על המחשב שלך.")
